@@ -1,125 +1,168 @@
 #include <wx/wx.h>
-#include <wx/dcbuffer.h> 
+#include <wx/dcbuffer.h>
+#include <wx/sizer.h>
+#include <vector>
 
-// ========== 1. 自定义画布类，继承自 wxPanel ==========
+// ========== 门的数据结构 ==========
+struct Gate {
+    int x, y;
+    int w = 60, h = 40;
+    wxString type;
+};
+
+// ========== 画布 ==========
 class Canvas : public wxPanel {
 public:
-    // 构造函数
     Canvas(wxWindow* parent)
         : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-            wxFULL_REPAINT_ON_RESIZE)  // 窗口大小改变时重绘
+            wxFULL_REPAINT_ON_RESIZE)
     {
-        // 绑定绘制事件：窗口需要重绘时，调用 OnPaint
         SetBackgroundStyle(wxBG_STYLE_PAINT);
         Bind(wxEVT_PAINT, &Canvas::OnPaint, this);
-        Bind(wxEVT_LEFT_DOWN, &Canvas::OnLeftDown, this);  // 新增
+        Bind(wxEVT_LEFT_DOWN, &Canvas::OnLeftDown, this);
         Bind(wxEVT_MOTION, &Canvas::OnMotion, this);
-        Bind(wxEVT_LEFT_UP, &Canvas::OnLeftUp, this);      // 新增)
+        Bind(wxEVT_LEFT_UP, &Canvas::OnLeftUp, this);
+    }
+
+    // ★ 对外提供"加门"接口
+    void AddGate(const wxString& type, int x = 100, int y = 100) {
+        Gate g;
+        g.x = x;
+        g.y = y;
+        g.type = type;
+        m_gates.push_back(g);
+        Refresh();
     }
 
 private:
-    int m_gateX = 200;
-    int m_gateY = 200;
-    int m_gateW = 60;
-    int m_gateH = 40;
-    //拖动状态
-     bool m_dragging=false;
-     wxPoint m_dragOffset;
+    std::vector<Gate> m_gates;      // 所有门
+    int     m_dragIndex = -1;       // 正在拖的门下标，-1 = 没在拖
+    wxPoint m_dragOffset;
 
-    
-    // 重写 OnPaint：在这里画网格
-    void OnPaint(wxPaintEvent& event) {
-        wxAutoBufferedPaintDC dc(this);      // 创建设备上下文（画笔）
+    // -------- 画一个门 --------
+    void DrawGate(wxDC& dc, const Gate& g) {
+        int gx = g.x, gy = g.y, gw = g.w, gh = g.h;
 
-        // 1. 白底
-        dc.SetBackground(*wxWHITE_BRUSH);
-        dc.Clear();
-        //-----网格--------
-        // 2. 灰色细线
-        dc.SetPen(wxPen(wxColour(220, 220, 220), 1));
-
-        int w = GetSize().x;
-        int h = GetSize().y;
-
-        // 竖线：每 20 像素一条
-        for (int x = 0; x < w; x += 20) {
-            dc.DrawLine(x, 0, x, h);
-        }
-        // 横线：每 20 像素一条
-        for (int y = 0; y < h; y += 20) {
-            dc.DrawLine(0, y, w, y);
-        }
-        int gx = m_gateX;
-        int gy = m_gateY;
-        int gw = m_gateW;
-        int gh = m_gateH;
-        
-        //门的本体（圆角矩形）
         dc.SetPen(*wxBLACK_PEN);
         dc.SetBrush(*wxWHITE_BRUSH);
         dc.DrawRoundedRectangle(gx, gy, gw, gh, 5);
-        //写AND文字
+
         dc.SetTextForeground(*wxBLACK);
-        dc.DrawText("AND", gx + 15, gy + 12);
-        // 3.3 画两条输入线（左边）
-        int in1_y = gy + gh / 3;       // 第 1 条输入线 y 坐标
-        int in2_y = gy + gh * 2 / 3;   // 第 2 条输入线 y 坐标
-        dc.DrawLine(gx - 30, in1_y, gx, in1_y);   // 上输入
-        dc.DrawLine(gx - 30, in2_y, gx, in2_y);   // 下输入
+        dc.DrawText(g.type, gx + 10, gy + 12);
 
-        // 3.4 画一条输出线（右边）
-        int out_y = gy + gh / 2;       // 输出线 y 坐标（正中）
-        dc.DrawLine(gx + gw, out_y, gx + gw + 30, out_y);
+        int inCount = (g.type == "NOT") ? 1 : 2;
+        for (int i = 0; i < inCount; ++i) {
+            int iy = gy + gh * (i + 1) / (inCount + 1);
+            dc.SetPen(*wxBLACK_PEN);
+            dc.DrawLine(gx - 30, iy, gx, iy);
+            dc.SetBrush(*wxBLACK_BRUSH);
+            dc.DrawCircle(gx - 30, iy, 3);
+        }
 
-        // 3.5 在线的端点画小圆点（表示引脚）
+        int oy = gy + gh / 2;
+        dc.SetPen(*wxBLACK_PEN);
+        dc.DrawLine(gx + gw, oy, gx + gw + 30, oy);
         dc.SetBrush(*wxBLACK_BRUSH);
-        dc.DrawCircle(gx - 30, in1_y, 3);
-        dc.DrawCircle(gx - 30, in2_y, 3);
-        dc.DrawCircle(gx + gw + 30, out_y, 3);
-
-
+        dc.DrawCircle(gx + gw + 30, oy, 3);
     }
+
+    // -------- 绘制 --------
+    void OnPaint(wxPaintEvent&) {
+        wxAutoBufferedPaintDC dc(this);
+        dc.SetBackground(*wxWHITE_BRUSH);
+        dc.Clear();
+
+        dc.SetPen(wxPen(wxColour(220, 220, 220), 1));
+        int w = GetSize().x, h = GetSize().y;
+        for (int x = 0; x < w; x += 20) dc.DrawLine(x, 0, x, h);
+        for (int y = 0; y < h; y += 20) dc.DrawLine(0, y, w, y);
+
+        for (const Gate& g : m_gates) DrawGate(dc, g);
+    }
+
+    // -------- 鼠标 --------
     void OnLeftDown(wxMouseEvent& e) {
         wxPoint pt = e.GetPosition();
-        wxRect gateRect(m_gateX, m_gateY, m_gateW, m_gateH);
-        if (gateRect.Contains(pt)) {
-            m_dragging = true;
-            m_dragOffset = pt - wxPoint(m_gateX, m_gateY);
-            CaptureMouse();
+        for (int i = (int)m_gates.size() - 1; i >= 0; --i) {
+            wxRect r(m_gates[i].x, m_gates[i].y, m_gates[i].w, m_gates[i].h);
+            if (r.Contains(pt)) {
+                m_dragIndex = i;
+                m_dragOffset = pt - wxPoint(m_gates[i].x, m_gates[i].y);
+                CaptureMouse();
+                return;
+            }
         }
     }
-    //鼠标移动
+
     void OnMotion(wxMouseEvent& e) {
-        if(m_dragging&e.Dragging()){
+        if (m_dragIndex >= 0 && e.Dragging()) {
             wxPoint pt = e.GetPosition();
-            m_gateX = pt.x - m_dragOffset.x;
-            m_gateY = pt.y - m_dragOffset.y;
-            Refresh();  // 请求重绘
+            m_gates[m_dragIndex].x = pt.x - m_dragOffset.x;
+            m_gates[m_dragIndex].y = pt.y - m_dragOffset.y;
+            Refresh();
         }
     }
+
     void OnLeftUp(wxMouseEvent&) {
-        if (m_dragging) {
-            m_dragging = false;
+        if (m_dragIndex >= 0) {
+            m_dragIndex = -1;
             if (HasCapture()) ReleaseMouse();
         }
     }
-
 };
 
-// ========== 2. 应用程序 ==========
+// ========== 侧边栏 ==========
+class Sidebar : public wxPanel {
+public:
+    Sidebar(wxWindow* parent, Canvas* canvas)
+        : wxPanel(parent, wxID_ANY), m_canvas(canvas)
+    {
+        wxBoxSizer* sizer = new wxBoxSizer(wxVERTICAL);
+
+        wxButton* btnAnd = new wxButton(this, wxID_ANY, "AND");
+        wxButton* btnOr = new wxButton(this, wxID_ANY, "OR");
+        wxButton* btnNot = new wxButton(this, wxID_ANY, "NOT");
+
+        sizer->Add(btnAnd, 0, wxALL | wxEXPAND, 5);
+        sizer->Add(btnOr, 0, wxALL | wxEXPAND, 5);
+        sizer->Add(btnNot, 0, wxALL | wxEXPAND, 5);
+
+        btnAnd->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_canvas->AddGate("AND");
+            });
+        btnOr->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_canvas->AddGate("OR");
+            });
+        btnNot->Bind(wxEVT_BUTTON, [this](wxCommandEvent&) {
+            m_canvas->AddGate("NOT");
+            });
+
+        SetSizer(sizer);
+    }
+
+private:
+    Canvas* m_canvas;
+};
+
+// ========== 应用程序 ==========
 class MyApp : public wxApp {
 public:
     virtual bool OnInit() {
-        // 创建主窗口
-        wxFrame* frame = new wxFrame(NULL, wxID_ANY, "网格画布",
-            wxDefaultPosition, wxSize(900, 600));
+        wxFrame* frame = new wxFrame(NULL, wxID_ANY, "Mini Logisim",
+            wxDefaultPosition, wxSize(1000, 700));
 
-        // 把 Canvas 放到 frame 里
-        new Canvas(frame);
+        Canvas* canvas = new Canvas(frame);
+        Sidebar* sidebar = new Sidebar(frame, canvas);
 
+        wxBoxSizer* sizer = new wxBoxSizer(wxHORIZONTAL);
+        sizer->Add(sidebar, 0, wxEXPAND | wxALL, 5);
+        sizer->Add(canvas, 1, wxEXPAND | wxALL, 5);
+
+        frame->SetSizer(sizer);
         frame->Show(true);
         return true;
     }
 };
 
 wxIMPLEMENT_APP(MyApp);
+
